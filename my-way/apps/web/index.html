@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      제스처 확대·축소를 막아요. 앱인토스 체크리스트가 요구합니다 —
+      "지도처럼 꼭 필요한 경우를 제외하고, 제스처 기반 확대·축소 기능은 비활성화돼요."
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <!-- 라이트 모드로만 구현돼 있어요. 시스템 다크 모드를 따라가지 않게 못박습니다. -->
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#3182F6" />
+    <title>마이웨이</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

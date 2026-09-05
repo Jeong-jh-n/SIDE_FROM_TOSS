@@ -1,0 +1,223 @@
+# My Way — 기술 스택 & 파이프라인
+
+커리어넷 공인 검사와 자체 서술 문항을 함께 진행하고, 로컬 LLM이 되묻기·피드백을
+붙여 주는 토스 미니앱. **작성 기준일 2026-08-31.**
+
+> 이전 판(2026-08-19)은 백엔드 없는 단일 SPA 기준이었습니다. 그 사이에
+> **모노레포 + Node 백엔드 + 로컬 추론 서버**로 구조가 바뀌어 전면 개정했습니다.
+> 옛 화면 코드는 `apps/web/src/_legacy/` 에 남아 있고 라우팅에 연결돼 있지 않습니다.
+
+---
+
+## 1. 사용 스택
+
+### 1-1. 프론트엔드 — `apps/web`
+
+| 레이어 | 기술 | 버전 |
+|---|---|---|
+| 런타임 | Node.js | 24.19.0 |
+| 언어 | TypeScript | 6.0.2 |
+| UI | React (React Compiler 적용) | 19.2.8 |
+| 라우팅 | react-router | 8.3.0 |
+| 번들러 / 개발서버 | Vite (Rolldown) | 8.2.0 |
+| 테스트 | Vitest | 3.2.4 |
+| 플랫폼 SDK / CLI | @apps-in-toss/web-framework · ait | 3.0.2 |
+| 상태 저장 | 브라우저 localStorage | — |
+
+### 1-2. 백엔드 프록시 — `apps/api`
+
+| 레이어 | 기술 | 버전 |
+|---|---|---|
+| 서버 | Fastify | 5.6.1 |
+| CORS | @fastify/cors | 11.1.0 |
+| 개발 실행 | tsx | 4.20.6 |
+| 포트 | 3000 | — |
+
+**존재 이유는 하나입니다 — 커리어넷 API 키를 프론트에 두지 않기 위해서입니다.**
+(CLAUDE.md §2.1) 여기에 문항 캐시(TTL 24h)와 AI 프록시가 얹혔습니다.
+데이터베이스는 없습니다.
+
+### 1-3. 로컬 추론 서버 — `apps/ai`
+
+| 레이어 | 기술 | 버전 |
+|---|---|---|
+| 언어 | Python | 3.12.10 |
+| 서버 | FastAPI · uvicorn | 0.141.1 · 0.52.4 |
+| 딥러닝 | PyTorch (CUDA 12.8) | 2.11.0+cu128 |
+| 모델 로더 | transformers | 5.16.1 |
+| 양자화 | bitsandbytes (4bit nf4) | 0.50.2 |
+| 어댑터 | peft | 0.20.0 |
+| 학습 (별도) | trl · datasets | 1.12.0 · 5.0.1 |
+| 포트 | 8000 (**127.0.0.1 전용**) | — |
+
+**모델: `EXAONE-3.5-7.8B-Instruct`** (LG AI Research, 한/영 이중언어, 32K 컨텍스트).
+4bit 로드 시 VRAM 약 7GB, 로딩 30~60초. GPU는 RTX 5060 Ti 8GB.
+
+LoRA 어댑터 `exaone_career_lora`(9.4M 파라미터)도 있지만 **현재 꺼져 있습니다.**
+`제시어 → 학생 답변`으로 학습돼 상담사가 아니라 학생을 흉내내서, 되묻기 성능이
+베이스보다 나빴습니다(1/10 vs 5/5). 스위치(`use_adapter`)는 남겨 뒀습니다.
+
+### 1-4. 외부 의존
+
+| 대상 | 용도 | 비고 |
+|---|---|---|
+| 커리어넷 Open API | 공인 검사 문항 · 결과표 생성 | 키 2년 만료, `/api/health`가 잔여일 감시 |
+| 없음 | — | 그 외 외부 호출 0건. **LLM도 로컬입니다** |
+
+AI허브 학습 데이터를 쓴 모델이라 **추론도 이 머신을 벗어나면 안 됩니다.**
+해외 API 금지. (`db-plan.md`, PYTHON-MIGRATION.md §8)
+
+---
+
+## 2. 라인
+
+### 2-0. 프로세스 3개
+
+```
+브라우저 :5173 ──/api/*──▶ Fastify :3000 ──HTTPS──▶ career.go.kr
+   (Vite proxy)                  │
+                                 └──HTTP──▶ FastAPI :8000 (EXAONE 4bit)
+                                            127.0.0.1 전용
+```
+
+`apps/ai`는 없어도 앱이 돌아갑니다. 꺼져 있으면 AI 기능만 조용히 빠집니다.
+
+### 2-1. 화면 라인
+
+```
+/                   TrackSelect    중·고등학생 / 대학생·취준생 선택
+/chat/:track        ChatRoute      자체 문항 문답 (트랙 A·B·C)
+/inspect/:q         InspectRoute   커리어넷 검사 실시
+/result/:track      ResultRoute    결과 (자체 정리 + AI 피드백 + 검사 링크)
+/card               CardRoute      가상 명함 PNG
+*                   → /
+```
+
+트랙은 3개입니다.
+
+| 트랙 | 대상 | 문항 | 톤 | 산출물 |
+|---|---|---|---|---|
+| `teen` | 중·고등학생 | 24 서술형 | 반말 | 영역별 서술 정리 |
+| `jobseeker_behavior` | 대학생·취준생 | 14 체크리스트 | 반말 | 단계 1 + 병목 최대 2 |
+| `jobseeker_narrative` | 대학생·취준생 | 12 서술형 | 해요체 | 자소서 항목별 재료 |
+
+대학생 트랙은 `behavior` → `narrative` 순서로 이어집니다.
+
+### 2-2. 자체 문항 라인 (트랙 A·C)
+
+```
+data/career_content_v1.json          단일 소스. 문항 텍스트 수정 금지 (§2.6)
+   ↓  lib/content.ts                 로더 + 의존관계 검증 (N11은 N6·N7·N9 뒤)
+QuestionFlow (공유 컴포넌트)
+   ↓  응답 입력
+lib/flowMachine.ts                   순수 함수 상태 전이
+   ├─ cursorKey                      앞뒤로 오가며 고쳐 쓰기
+   └─ probingKey                     꼬리물기는 같은 문항에 머묾
+   ↓  lib/followup.shouldFollowup()  10자 미만 or 회피 응답일 때만 발동
+   ↓
+POST /api/ai/followup                ← AI 라인 (2-4)
+   ↓  8초 안에 오면 그 문구, 넘으면 JSON 고정 문구로 확정
+보조질문 1회 표시 (한 번 정해지면 안 바뀜)
+   ↓  문항마다 localStorage 저장 (§5)
+TeenResult / NarrativeResult
+```
+
+### 2-3. 커리어넷 검사 라인
+
+```
+InspectFlow
+   ↓  GET /api/inspect/questions?q=8
+apps/api  화이트리스트 [6,8,24,25,35,36] → 캐시(24h) → career.go.kr
+   ↓  35~63문항, 문항마다 localStorage 저장 · startDtm 유지
+lib/answers.buildAnswers(q, values)
+   │
+   ├─ q=8         "4,4,5,..."      values 형식  ← 이걸 안 지키면 HTTP 500
+   └─ 그 외       "1=4 2=4 ..."    pairs 형식   (특수 문항이 값 안에 쉼표를 씀)
+   ↓
+POST /api/inspect/report → career.go.kr
+   ↓  { inspctSeq, url }            점수 데이터는 오지 않음
+결과표 URL 전체를 보관 (재구성 금지, 화면·로그 노출 금지 §2.4)
+   ↓
+AreaAskback  "여섯 개 중 제일 낮게 나온 게 뭐야?"
+```
+
+**`relm`(영역) 필드가 응답에 없어서** 영역별 점수를 앱이 계산할 수 없습니다.
+커리어넷 확인 결과 **2020년 이후 사용되지 않던 항목**이고 개선 중이나 일정 미정입니다.
+그래서 사용자에게 직접 되묻는 구조를 유지합니다.
+
+### 2-4. AI 라인
+
+```
+apps/web  lib/aiApi.ts               예외를 던지지 않음. 실패하면 항상 null
+   ↓
+apps/api  routes/ai.ts               ★ 프롬프트와 규칙이 사는 곳
+   ├─ PROFILES           트랙별 어투(반말/해요체) + 모델(어댑터 on/off)
+   ├─ extractQuestion()  물음표 문장만, 8~80자, §7 금지어 차단
+   └─ sanitizeFeedback() 마크다운 제거 · 잘린 꼬리 제거 · §7/대필/능력단정 차단
+   ↓  lib/ai.ts
+apps/ai   POST /complete             { system, prompt, use_adapter } → { text }
+   ↓  GPU 락으로 직렬화 (8GB라 동시 생성 불가)
+EXAONE 4bit
+```
+
+붙어 있는 지점은 두 곳입니다.
+
+| 지점 | 트리거 | 실측 |
+|---|---|---|
+| 꼬리물기 | 응답이 얇을 때만 | teen 5/5 · jobseeker 10/10, 3~7초 |
+| 결과 피드백 "읽고 나서" | 결과 화면 진입 시 1회 | 9/10, 190~300자 |
+
+**필터에 걸리면 통째로 버리고 화면에서 사라집니다.** 부분 수정은 뜻이 바뀌어
+더 위험하기 때문입니다.
+
+정서적 신호 문항(트랙 A Q7·Q23, 트랙 C N4·N7·N12)은 **피드백 입력에서 제외**합니다.
+그 응답을 근거로 부정적 판단을 만들면 안 됩니다. (§8)
+
+### 2-5. 상태 저장 라인
+
+```
+lib/storage.ts        localStorage, 접두사 'my-way:'
+   ├─ track:<트랙>          문답 진행 + 응답
+   ├─ inspect:<q>           검사 진행 + startDtm + 결과 URL
+   └─ inspect:result:<q>    선택한 영역
+```
+
+서버 세션도 DB도 없습니다. 문항 하나마다 저장해 재진입 시 이어서 진행합니다.
+
+### 2-6. 빌드 / 배포 라인
+
+```
+npm run dev            vite (5173) — /api 는 3000 으로 프록시
+npm run dev:api        tsx watch (3000)
+python apps/ai/server.py   (8000, 수동 실행)
+
+npm run test           vitest — 웹 75개
+npx vitest run apps/api            API 26개
+
+npm run build
+  ├─ tsc -b            타입 검사
+  ├─ vite build        → dist/
+  └─ ait build         → 앱인토스 웹번들 (my-way.ait)
+
+npm run deploy         ait deploy
+```
+
+배포 전 검증 3종 (CLAUDE.md §13):
+
+```bash
+grep -ri "CAREERNET_API_KEY\|apikey=" dist/      # 키 노출
+grep -ri "inspct/web\|inspect/ready" dist/       # 결과 URL 하드코딩
+curl -s "localhost:3000/api/inspect/questions?q=99" -o /dev/null -w "%{http_code}"  # 400 기대
+```
+
+---
+
+## 3. 아직 안 붙은 것
+
+| 항목 | 상태 | 메모 |
+|---|---|---|
+| `relm` 영역 데이터 | 커리어넷 개선 중, 일정 미정 | 오면 `inspectMeta.areas` 연결 → 되묻기 제거 가능 |
+| 꼬리물기 `confidence` 트리거 | 미구현 | `followup.ts` `DEFERRED_TRIGGERS`. 분류 모델 필요 |
+| LoRA 재학습 | 보류 | 상담사 코멘트는 §7과 충돌. 분류기 쪽이 유망 |
+| 추론 서버 자동 기동 | 수동 | 지금은 사람이 직접 띄움 |
+| `_legacy/` 정리 | 방치 | 라우팅 미연결. 삭제 여부 미정 |

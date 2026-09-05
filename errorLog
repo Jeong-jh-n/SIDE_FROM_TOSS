@@ -1,0 +1,91 @@
+W0830 20:21:50.610000 11700 .venv\Lib\site-packages\torch\utils\flop_counter.py:29] triton not found; flop counting will not work for triton kernels
+📂 [C:\Users\dotbl\Downloads\108.진로문장완성검사 텍스트 데이터\3.개방데이터\1.데이터\Training] 하위 라벨링 JSON 탐색 및 파싱 시작...
+
+🔍 총 32337개의 라벨링 JSON 파일을 처리합니다.
+
+=======================================================
+📊 데이터 수집 결과 요약
+  - 성공 처리 파일: 32301 개
+  - 실패/건너뛴 파일: 36 개
+  - 총 추출된 학습 샘플 수: 32301 개
+=======================================================
+
+🚀 EXAONE 모델 및 토크나이저 로딩 중...
+[ERROR] `cache_position` is part of ExaoneModel.forward's signature, but not documented. Make sure to add it to the docstring of the function in C:\Users\dotbl\.cache\huggingface\modules\transformers_modules\exaone_model\8b0569907301c920\modeling_exaone.py.
+[transformers] The `check_model_inputs` decorator is deprecated in favor of `merge_with_config_defaults`.
+[ERROR] `cache_position` is part of ExaoneForCausalLM.forward's signature, but not documented. Make sure to add it to the docstring of the function in C:\Users\dotbl\.cache\huggingface\modules\transformers_modules\exaone_model\8b0569907301c920\modeling_exaone.py.
+Loading weights: 100%|███████████████████████████████████████████████████████████| 291/291 [00:28<00:00, 10.21it/s]
+[transformers] ExaoneForCausalLM does not expose input embeddings. Gradients cannot flow back to the token embeddings when using adapters or gradient checkpointing. Override `get_input_embeddings` to fully support those features, or set `_input_embed_layer` to the attribute name that holds the embeddings.
+Tokenizing train dataset: 100%|█████████████████████████████████████| 32301/32301 [00:05<00:00, 6415.47 examples/s]
+Building labels for train dataset: 100%|███████████████████████████| 32301/32301 [00:01<00:00, 19396.97 examples/s]
+Truncating train dataset: 100%|████████████████████████████████████| 32301/32301 [00:00<00:00, 34587.55 examples/s]
+Dropping fully masked examples from train dataset: 100%|██████████| 32301/32301 [00:00<00:00, 194832.12 examples/s]
+
+>>> [오프라인 QLoRA 파인튜닝 시작]
+  0%|                                                                                    | 0/24228 [00:00<?, ?it/s]Traceback (most recent call last):
+  File "C:\Users\dotbl\Downloads\TOSS_project\AI.py", line 212, in <module>
+    trainer.train()
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\transformers\trainer.py", line 1458, in train
+    return inner_training_loop(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\transformers\trainer.py", line 1540, in _inner_training_loop
+    self._run_epoch(
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\transformers\trainer.py", line 1768, in _run_epoch
+    tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\trl\trainer\sft_trainer.py", line 1891, in training_step
+    return super().training_step(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\transformers\trainer.py", line 1940, in training_step
+    loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\trl\trainer\sft_trainer.py", line 1789, in compute_loss
+    (loss, outputs) = super().compute_loss(
+                      ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\transformers\trainer.py", line 2014, in compute_loss
+    outputs = model(**inputs)
+              ^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\torch\nn\modules\module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\torch\nn\modules\module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\accelerate\utils\operations.py", line 943, in forward
+    return model_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\accelerate\utils\operations.py", line 931, in __call__
+    return convert_to_fp32(self.model_forward(*args, **kwargs))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\torch\amp\autocast_mode.py", line 44, in decorate_autocast
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\peft\peft_model.py", line 2101, in forward
+    return self.base_model(
+           ^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\torch\nn\modules\module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\torch\nn\modules\module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\peft\tuners\tuners_utils.py", line 333, in forward
+    return self.model.forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\trl\trainer\sft_trainer.py", line 311, in _chunked_ce_forward
+    outputs: BaseModelOutputWithPast = backbone(
+                                       ^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\torch\nn\modules\module.py", line 1779, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\torch\nn\modules\module.py", line 1790, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\Downloads\TOSS_project\.venv\Lib\site-packages\transformers\utils\generic.py", line 1068, in wrapper
+    output = func(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\dotbl\.cache\huggingface\modules\transformers_modules\exaone_model\8b0569907301c920\modeling_exaone.py", line 420, in forward
+    causal_mask = create_causal_mask(
+                  ^^^^^^^^^^^^^^^^^^^
+TypeError: create_causal_mask() got an unexpected keyword argument 'input_embeds'
+  0%|          | 0/24228 [00:00<?, ?it/s]   

@@ -1,0 +1,52 @@
+:root {
+  --primary: #3182f6;
+  --primary-dark: #1b64da;
+  --primary-weak: rgba(49, 130, 246, 0.08);
+  --text: #191f28;
+  --text-sub: #6b7684;
+  --text-weak: #8b95a1;
+  --bg: #f2f4f6;
+  --surface: #ffffff;
+  --border: #e5e8eb;
+  --radius: 16px;
+  --shadow: 0 2px 8px rgba(0, 19, 43, 0.06);
+
+  --sans: 'Toss Product Sans', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Malgun Gothic', system-ui, sans-serif;
+
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input {
+  font-family: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}

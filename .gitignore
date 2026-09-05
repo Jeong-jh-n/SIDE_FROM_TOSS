@@ -1,0 +1,124 @@
+# ─────────────────────────────────────────────────────────────
+# TOSS_project — git 백업용 제외 목록
+#
+# 여기 걸린 것 중 셋은 **용량이 아니라 규정 때문**에 빠집니다.
+# 아래 "절대 올리지 마세요" 를 먼저 읽어주세요.
+# ─────────────────────────────────────────────────────────────
+
+
+# ══ 절대 올리지 마세요 ═══════════════════════════════════════
+
+# 1) 커리어넷 인증키.
+#    유효기간 2년짜리 실제 키가 들어 있습니다. 한 번 올라가면 커밋 기록에
+#    영원히 남아서, 저장소를 비공개로 돌려도 키를 새로 발급받아야 해요.
+#    (CLAUDE.md §2.1 — 키는 apps/api 환경변수로만 존재합니다)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# 2) AI허브 데이터로 학습한 LoRA 어댑터 (159MB).
+#    career_content_v1.json 의 licensing.obligations:
+#      "AI허브 데이터 제3자 제공 금지"
+#      "AI허브 데이터 국외 반출 금지"
+#    깃허브는 미국 서버입니다. 학습 산출물은 AI허브 데이터의 파생물이라
+#    **비공개 저장소에 올려도 국외 반출·제3자 제공에 해당할 소지가 큽니다.**
+#    백업이 필요하면 국내 저장소나 외장 매체를 쓰세요.
+exaone_career_lora/
+
+# 3) AI허브 원본 데이터셋. 위와 같은 이유예요.
+#    지금 이 경로에 파일이 없더라도, 나중에 받아올 때를 대비해 미리 막아 둡니다.
+aihub/
+datasets/
+*.aihub.json
+TL_*/
+VL_*/
+
+
+# ══ 용량 때문에 빠지는 것 ════════════════════════════════════
+
+# 베이스 모델 가중치 30GB. safetensors 한 조각이 4GB 라
+# 깃허브 파일 상한(100MB)을 훨씬 넘습니다. 허깅페이스에서 다시 받으면 돼요.
+exaone_model/
+*.safetensors
+*.gguf
+*.bin
+
+# 파이썬 가상환경. requirements 파일로 복원됩니다.
+.venv/
+venv/
+
+# 학습 중간 저장. AI.py 가 자동 재개에 쓰는 것이라 백업 대상이 아니에요.
+checkpoint-*/
+runs/
+wandb/
+
+
+# ══ 빌드 산출물 · 캐시 ═══════════════════════════════════════
+
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# 앱인토스 빌드 결과
+.apps-in-toss/
+
+
+# ══ 이미지 ═══════════════════════════════════════════════════
+#
+# 시안·스크린샷·디자인 원본은 안 올립니다. 용량도 용량이지만 버전이 쌓이면
+# 저장소가 지저분해져요.
+#
+# **단, 빌드가 import 하는 것은 반드시 남깁니다.**
+# src/assets/aiMark.png 는 CardRoute·WarmupRoute 가 직접 import 해서,
+# 빠지면 복원 후 빌드가 깨져요.
+
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.tif
+*.tiff
+
+# 디자인 원본
+*.psd
+*.ai
+*.sketch
+*.fig
+*.xd
+
+# ↓ 여기는 예외 — 앱이 실제로 쓰는 자산
+!my-way/apps/web/src/assets/**
+!my-way/apps/web/public/**
+
+# svg 는 UI 아이콘이라 통째로 남깁니다 (favicon.svg, icons.svg)
+
+
+# ══ 잡다한 것 ════════════════════════════════════════════════
+
+# 편집 중 생긴 백업본
+*.bak
+*~
+
+# 로그. errorLog 는 작업 기록이라 일부러 남겨 둡니다.
+*.log
+npm-debug.log*
+logs/
+
+# OS · 에디터
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
