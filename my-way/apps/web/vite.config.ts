@@ -17,7 +17,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // 프론트는 우리 백엔드만 호출해요. career.go.kr 직접 호출 금지. (CLAUDE.md §2.1)
+      // 프론트는 우리 백엔드만 호출해요. 자격증명은 백엔드에만 있습니다. (CLAUDE.md §2.1)
       '/api': { target: 'http://127.0.0.1:3000', changeOrigin: true },
     },
   },

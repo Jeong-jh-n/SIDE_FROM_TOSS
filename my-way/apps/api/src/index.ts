@@ -1,7 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
-import { inspectRoutes } from './routes/inspect.js'
 import { healthRoutes } from './routes/health.js'
 import { aiRoutes } from './routes/ai.js'
 import { corsOrigin, hitRateLimit, sweepRateLimit } from './lib/guard.js'
@@ -26,8 +25,10 @@ const app = Fastify({
 await app.register(cors, { origin: corsOrigin() })
 
 /*
- * 요청 빈도 제한. 이 서버가 커리어넷 키를 들고 있어서, 배포되면 남이 우리 키로
- * 긁어갈 수 있어요. 화이트리스트가 "무엇을" 막는다면 이건 "얼마나 자주" 를 막습니다.
+ * 요청 빈도 제한.
+ *
+ * 이 서버가 **AI 자격증명을 들고 있고 호출마다 토큰 비용이 듭니다.** 배포되면
+ * 주소를 아는 누구나 부를 수 있으니, 남이 우리 계정으로 긁어가지 못하게 막아요.
  */
 app.addHook('onRequest', async (request, reply) => {
   // 헬스체크는 모니터링이 자주 부르니 제외해요.
@@ -42,7 +43,6 @@ app.addHook('onRequest', async (request, reply) => {
 // 오래된 카운터를 주기적으로 치워요. 프로세스가 종료를 막지 않게 unref 합니다.
 setInterval(() => sweepRateLimit(), 60_000).unref()
 await app.register(healthRoutes)
-await app.register(inspectRoutes)
 await app.register(aiRoutes)
 
 try {

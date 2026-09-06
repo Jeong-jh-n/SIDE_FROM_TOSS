@@ -10,15 +10,7 @@ import { stateHasContent } from './storage'
 
 describe('빈 껍데기는 내용 없음으로 본다', () => {
   it('문답 화면에 들어가기만 한 경우', () => {
-    expect(stateHasContent('track:teen', { answers: [], probingKey: null, cursorKey: null })).toBe(
-      false,
-    )
-  })
-
-  it('체크리스트에 들어가기만 한 경우', () => {
-    expect(stateHasContent('track:jobseeker_behavior', { checked: [], submitted: false })).toBe(
-      false,
-    )
+    expect(stateHasContent('responses', { answers: [] })).toBe(false)
   })
 
   it('명함 화면에 들어가기만 한 경우 — 테마는 항상 값이 있다', () => {
@@ -33,40 +25,25 @@ describe('빈 껍데기는 내용 없음으로 본다', () => {
       }),
     ).toBe(false)
   })
-
-  it('검사 화면에 들어가기만 한 경우', () => {
-    expect(stateHasContent('inspect:8', { values: [], startDtm: null, reportUrl: null })).toBe(false)
-    expect(stateHasContent('inspect:result:8', { reportUrl: null, lowestArea: null })).toBe(false)
-  })
 })
 
 describe('실제 내용이 있으면 지울 게 있다고 본다', () => {
   it('문답에 답한 경우', () => {
     expect(
-      stateHasContent('track:teen', { answers: [{ key: '1', text: '그림', skipped: false }] }),
+      stateHasContent('responses', { answers: [{ key: '1', text: '그림', skipped: false }] }),
     ).toBe(true)
   })
 
   it('건너뛴 것도 사용자 행동이라 센다', () => {
-    expect(
-      stateHasContent('track:teen', { answers: [{ key: '1', text: '', skipped: true }] }),
-    ).toBe(true)
-  })
-
-  it('체크리스트를 체크한 경우', () => {
-    expect(stateHasContent('track:jobseeker_behavior', { checked: ['A1'] })).toBe(true)
+    expect(stateHasContent('responses', { answers: [{ key: '1', text: '', skipped: true }] })).toBe(
+      true,
+    )
   })
 
   it('명함에 뭐라도 적은 경우', () => {
     expect(stateHasContent('card', { name: '김토스', themeId: 'toss' })).toBe(true)
     expect(stateHasContent('card', { info: { hobby: '러닝' }, themeId: 'toss' })).toBe(true)
     expect(stateHasContent('card', { aiTagline: '귀 기울이는 친구', themeId: 'toss' })).toBe(true)
-  })
-
-  it('검사를 진행한 경우', () => {
-    expect(stateHasContent('inspect:8', { values: [{ kind: 'single', score: 4 }] })).toBe(true)
-    expect(stateHasContent('inspect:8', { values: [], startDtm: 1700000000000 })).toBe(true)
-    expect(stateHasContent('inspect:result:8', { reportUrl: 'https://…' })).toBe(true)
   })
 })
 

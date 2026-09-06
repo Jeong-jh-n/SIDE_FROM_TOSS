@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { aiHealth, complete, AiUnavailableError } from '../lib/ai.js'
 import { containsDistressSignal, containsRiskSignal } from '../lib/safety.js'
+import { CHARACTERS, characterById, TALK_MAX_TURNS, TALK_MIN_TURNS } from '../lib/characters.js'
 
 const NEWLINE = '\n'
 
@@ -311,6 +312,18 @@ const TAGLINE_PROFILES = {
 export const EASTER_EGG_TAGLINE = '사차원'
 
 /**
+ * **하나도 안 쓰고** 다 건너뛴 사람에게 주는 칭호.
+ *
+ * `사차원` 과 짝이에요. 저쪽이 "쓰긴 썼는데 알맹이가 없다" 라면, 이쪽은 "아무 말도
+ * 안 했다" 입니다. 빈손으로 돌려보내는 대신 그것도 하나의 태도로 쳐주는 거예요.
+ *
+ * > 위험 신호 때문에 재료가 없어진 경우와 **헷갈리면 안 됩니다.** 힘든 말을 적은
+ * > 사람에게 농담을 돌려주는 꼴이 돼요. 그쪽은 호출 전에 갈라내고 여기까지 오지
+ * > 않습니다. (`containsRiskSignal`, WarmupRoute)
+ */
+export const SILENT_TAGLINE = '침묵자'
+
+/**
  * 알맹이가 없는 응답인지 봐요.
  *
  * 자음만 두드리거나(`ㅁㄴㅇㄹ`) 숫자만 채우고(`12345`) 넘어가는 경우가 있는데,
@@ -335,6 +348,127 @@ export function looksMeaningless(text: string): boolean {
   if (t.length >= 5 && distinct <= 2) return true
 
   return false
+}
+
+/**
+ * 진로를 대신 정해주는 말.
+ *
+ * 대화 캐릭터는 **듣고 되묻는 역할**이에요. "너는 디자이너가 어울려" 처럼 진로를
+ * 판정하기 시작하면 `CLAUDE.md §1` 이 갈라둔 선을 넘습니다 — 적성 판정은 규준을
+ * 가진 쪽(커리어넷)만 할 수 있는 일이에요.
+ *
+ * ## 대화를 죽이지 않는 선에서
+ *
+ * "한번 해보는 건 어때?" 같은 평범한 반응까지 막으면 대화가 안 됩니다. 그래서
+ * **진로·적성을 못박는 표현만** 잡아요.
+ *
+ * ```
+ * ❌ "너한테는 디자인 쪽이 잘 맞아"     적성 판정
+ * ❌ "OO학과를 추천해"                 진로 결정 대행
+ * ⭕ "그 얘기 할 때 표정이 달라지네요"   관찰
+ * ⭕ "그건 언제부터 좋아했어요?"        되묻기
+ * ```
+ */
+const CAREER_VERDICT = [
+  '적성에 맞',
+  '적성이',
+  '잘 맞아',
+  '잘 맞을',
+  '어울려',
+  '어울리는 직업',
+  '추천해',
+  '추천드',
+  '추천합니',
+  '진로로 삼',
+  '전공을 선택',
+  '직업을 선택',
+]
+
+/** 대화 한 마디의 길이. 너무 길면 대화가 아니라 강의가 돼요. */
+const MIN_REPLY_CHARS = 4
+const MAX_REPLY_CHARS = 200
+
+/**
+ * 캐릭터의 한 마디를 다듬어요.
+ *
+ * 자유 대화라 **턴마다** 걸러야 합니다. 문답은 제출된 묶음을 한 번 보면 됐지만,
+ * 대화는 모델이 매 턴 새로 말하니 매번 검사해요.
+ *
+ * 걸리면 `null` 을 돌려주고, 호출부가 다시 뽑거나 대화를 멈춥니다.
+ * **억지로 고쳐 쓰지 않아요** — 반쯤 지운 문장은 더 이상해집니다.
+ */
+export function sanitizeReply(raw: string): string | null {
+  const text = trimToCompleteSentence(stripMarkup(raw))
+
+  if (text.length < MIN_REPLY_CHARS) return null
+  if (text.length > MAX_REPLY_CHARS) return null
+
+  if (violatesExpressionRules(text)) return null
+  if (ABILITY_CLAIMS.some((word) => text.includes(word))) return null
+  if (TYPE_LABELS.some((word) => text.includes(word))) return null
+  if (CAREER_VERDICT.some((word) => text.includes(word))) return null
+  if (looksLikeGhostwriting(text)) return null
+
+  // 해요체로 진행해요. "당신" 은 번역투로 읽히고 거리감을 줍니다.
+  if (text.includes('당신')) return null
+
+  return text
+}
+
+/**
+ * 메모 한 줄의 길이. 메모지에 손글씨처럼 들어갈 분량이에요.
+ */
+const MIN_NOTE_LINE_CHARS = 6
+const MAX_NOTE_LINE_CHARS = 60
+
+/**
+ * 대화가 끝난 뒤 캐릭터가 남기는 메모.
+ *
+ * ## 칭찬은 되지만 평가는 안 됩니다
+ *
+ * "칭찬이나 응원을 섞은" 메모가 목표인데, §7 이 능력 단정을 막아요. 경계는
+ * **단정하느냐**에 있습니다.
+ *
+ * ```
+ * ❌ "표현력이 뛰어나시네요"            능력 평가 → ABILITY_CLAIMS 에 걸림
+ * ⭕ "그림 얘기 할 때 말이 빨라지셨어요"  관찰
+ * ⭕ "솔직하게 말해줘서 좋았어요"        응원
+ * ```
+ *
+ * ## 자소서가 되면 안 돼요
+ *
+ * §7 이 "그대로 옮겨 쓸 수 있는 글로 제시하지 말고, 대신 작성하지도 마세요" 라고
+ * 못박고 있습니다. 지금 쓰는 문항에 `usedIn: "지원동기"` 같은 필드가 붙어 있어서
+ * **모델이 그쪽으로 새기 쉬워요.** `looksLikeGhostwriting` 이 막습니다.
+ *
+ * 걸린 줄은 **버리고 나머지만** 씁니다. 한 줄이 이상하다고 메모 전체를 버리면
+ * 사용자는 빈손이 돼요.
+ */
+export function sanitizeNoteLines(raw: string, max = 4): string[] {
+  // 줄을 **먼저** 나눠요. stripMarkup 이 줄바꿈을 공백으로 눌러버려서,
+  // 순서를 바꾸면 메모 전체가 한 줄로 붙습니다.
+  const lines = raw
+    .split(/[\r\n]+/)
+    .map((line) => stripMarkup(line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '')))
+    .filter((line) => line !== '')
+
+  const kept: string[] = []
+  for (const line of lines) {
+    if (kept.length >= max) break
+
+    if (line.length < MIN_NOTE_LINE_CHARS) continue
+    if (line.length > MAX_NOTE_LINE_CHARS) continue
+    if (violatesExpressionRules(line)) continue
+    if (ABILITY_CLAIMS.some((word) => line.includes(word))) continue
+    if (TYPE_LABELS.some((word) => line.includes(word))) continue
+    if (CAREER_VERDICT.some((word) => line.includes(word))) continue
+    if (looksLikeGhostwriting(line)) continue
+    if (line.includes('당신')) continue
+    if (kept.includes(line)) continue
+
+    kept.push(line)
+  }
+  return kept
 }
 
 /**
@@ -444,6 +578,22 @@ interface FollowupBody {
   track?: unknown
 }
 
+interface TalkTurn {
+  role: 'user' | 'character'
+  text: string
+}
+
+interface TalkBody {
+  characterId?: string
+  turns?: TalkTurn[]
+}
+
+function isTurn(value: unknown): value is TalkTurn {
+  if (value === null || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  return (v.role === 'user' || v.role === 'character') && typeof v.text === 'string'
+}
+
 function isEntry(value: unknown): value is FeedbackEntry {
   if (typeof value !== 'object' || value === null) return false
   const entry = value as Record<string, unknown>
@@ -540,7 +690,9 @@ export async function aiRoutes(app: FastifyInstance) {
       if (answered) {
         return reply.send({ available: true, taglines: [EASTER_EGG_TAGLINE] })
       }
-      return reply.send({ available: false, taglines: [] })
+
+      // 한 글자도 안 쓴 경우. 이쪽도 빈손으로 보내지 않아요.
+      return reply.send({ available: true, taglines: [SILENT_TAGLINE] })
     }
 
     const system = track === 'jobseeker' ? TAGLINE_PROFILES.jobseeker : TAGLINE_PROFILES.teen
@@ -567,7 +719,8 @@ export async function aiRoutes(app: FastifyInstance) {
         useAdapter: false,
         prompt: `아래는 사람이 자기 이야기로 답한 내용이야.${NEWLINE}${NEWLINE}${body}${NEWLINE}${NEWLINE}명함에 넣을 후보 여덟 개:`,
         // 여덟 줄이 다 나올 만큼. 짧으면 마지막 후보가 잘려서 버려집니다.
-        // 추론 서버의 상한이 200 이라 그 이상은 422 로 거부돼요. (apps/ai MAX_NEW_TOKENS_CAP)
+        // 로컬 제공자는 200 이 상한이라 그쪽에서 잘라요. 상용 API 는 더 줄 수 있으니
+        // Vertex 로 옮긴 뒤 후보가 잘리면 여기를 올리세요. (lib/aiLocal.ts)
         maxNewTokens: 200,
         temperature: 0.9,
       })
@@ -641,4 +794,167 @@ export async function aiRoutes(app: FastifyInstance) {
       throw error
     }
   })
+  /** 고르기 화면용 목록. **시스템 프롬프트는 내보내지 않아요.** */
+  app.get('/api/ai/characters', async (_request, reply) => {
+    return reply.send({
+      characters: CHARACTERS.map(({ id, name, blurb, opening }) => ({ id, name, blurb, opening })),
+      minTurns: TALK_MIN_TURNS,
+      maxTurns: TALK_MAX_TURNS,
+    })
+  })
+
+  /**
+   * 캐릭터와 한 턴 주고받기.
+   *
+   * 서버는 대화를 들고 있지 않아요. **매 턴 전체 대화를 받습니다.** 저장은 기기
+   * 안에서만 일어나고, 서버에는 아무것도 남지 않아요. (CLAUDE.md §2.8)
+   *
+   * ## 두 신호를 다르게 다뤄요
+   *
+   * | | 자살·자해 | 우울·번아웃 등 |
+   * |---|---|---|
+   * | 모델 호출 | **막음** | 그대로 진행 |
+   * | 상담 안내 | 띄움 | 띄움 |
+   *
+   * 어려움을 말했다고 대화를 끊으면 **가장 필요한 순간에 앱이 등을 돌리는** 셈이에요.
+   * 캐릭터가 다정하게 받는 건 §8 이 금지한 "부정적 판단"이 아닙니다. 반면 자살·자해
+   * 발화를 재료로 모델을 부르는 건 안 돼요.
+   */
+  app.post<{ Body: TalkBody }>('/api/ai/talk', async (request, reply) => {
+    const { characterId, turns } = request.body ?? {}
+
+    const character = characterById(characterId)
+    if (character === undefined) {
+      return reply.status(400).send({ error: '없는 캐릭터예요.' })
+    }
+    if (!Array.isArray(turns) || !turns.every(isTurn) || turns.length === 0) {
+      return reply.status(400).send({ error: '대화 내용이 필요해요.' })
+    }
+
+    const last = turns[turns.length - 1]!
+    if (last.role !== 'user') {
+      return reply.status(400).send({ error: '마지막은 사용자 차례여야 해요.' })
+    }
+
+    const spoken = turns.filter((turn) => turn.role === 'user').length
+    if (spoken > TALK_MAX_TURNS) {
+      return reply.status(400).send({ error: '대화가 너무 길어요.' })
+    }
+
+    // 자살·자해 발화는 모델에 넘기지 않아요. 그 말을 받아 대화를 잇는 건 우리 몫이 아닙니다.
+    if (containsRiskSignal(last.text)) {
+      return reply.send({ available: false, reply: null, blocked: 'risk' })
+    }
+
+    /*
+     * 지난 턴 중 위험 신호가 있던 것은 **맥락에서도 뺍니다.** 그 턴은 이미 모델 없이
+     * 넘어갔는데, 다음 턴에 재료로 들어가면 결국 같은 일이 됩니다.
+     */
+    const history = turns
+      .filter((turn) => !(turn.role === 'user' && containsRiskSignal(turn.text)))
+      .map((turn) => `${turn.role === 'user' ? '상대' : '너'}: ${turn.text}`)
+      .join(NEWLINE)
+
+    const prompt = `${history}${NEWLINE}너:`
+
+    const say = async () => {
+      const raw = await complete({
+        system: character.system,
+        useAdapter: false,
+        prompt,
+        maxNewTokens: 120,
+        temperature: 0.9,
+      })
+      return sanitizeReply(raw)
+    }
+
+    try {
+      // 걸러져서 빈손이면 한 번 더. 온도가 높아 두 번째는 다른 말이 나와요.
+      const text = (await say()) ?? (await say())
+      return reply.send({ available: text !== null, reply: text })
+    } catch (error) {
+      if (error instanceof AiUnavailableError) {
+        // 사용자 발화는 로그에 남기지 않아요. 사유 문구만 남깁니다. (CLAUDE.md §2.8)
+        request.log.warn({ reason: error.message }, 'ai talk 사용 불가')
+        return reply.send({ available: false, reply: null })
+      }
+      throw error
+    }
+  })
+
+  /**
+   * 대화를 메모 몇 줄로 정리해요.
+   *
+   * **판정이 아니라 인상입니다.** "이렇게 보였어요" 에서 멈춰요. 인상은 주관적
+   * 진술이라 §7 의 유형 규정을 피해 가지만, 능력 단정으로 새면 그대로 걸립니다.
+   * `sanitizeNoteLines` 가 줄 단위로 걸러요.
+   */
+  app.post<{ Body: TalkBody }>('/api/ai/note', async (request, reply) => {
+    const { characterId, turns } = request.body ?? {}
+
+    const character = characterById(characterId)
+    if (character === undefined) {
+      return reply.status(400).send({ error: '없는 캐릭터예요.' })
+    }
+    if (!Array.isArray(turns) || !turns.every(isTurn) || turns.length === 0) {
+      return reply.status(400).send({ error: '대화 내용이 필요해요.' })
+    }
+
+    /*
+     * 위험 신호가 있던 턴은 재료에서 빼요. 그 말을 근거로 메모를 쓸 수는 없습니다.
+     * 어려움 신호(우울·번아웃)는 남깁니다 — 다정하게 받은 대화까지 지우면 메모가
+     * 그 사람의 이야기가 아니게 돼요. (CLAUDE.md §8)
+     */
+    const said = turns
+      .filter((turn) => turn.role === 'user' && !containsRiskSignal(turn.text))
+      .map((turn) => turn.text.trim())
+      .filter((text) => text !== '' && !looksMeaningless(text))
+
+    if (said.length === 0) {
+      return reply.send({ available: false, lines: [] })
+    }
+
+    const system = [
+      character.system,
+      '이제 대화를 마치고 상대에게 건넬 쪽지를 써.',
+      // 롤링페이퍼처럼 쪽지 하나에 이야깃거리 하나가 들어가요.
+      '대화에서 나온 이야깃거리마다 한 줄씩 써. 줄마다 서로 다른 주제를 골라.',
+      '상대가 한 말에서 기억에 남는 것을 짚어줘. 없는 얘기를 지어내지 마.',
+      '능력을 평가하지 마. 잘한다, 뛰어나다, 부족하다 같은 말을 쓰지 마.',
+      '대신 무엇을 말했는지, 어떤 순간에 말이 많아졌는지를 적어.',
+      '마지막 한 줄은 응원으로 마무리해.',
+      '자기소개서 문장을 써주지 마.',
+      '세 줄에서 다섯 줄, 각 줄은 40자 안팎으로 줄바꿈해서 써.',
+    ].join(' ')
+
+    const body = said.map((text) => `- ${text}`).join(NEWLINE)
+    const prompt = `상대가 한 말:${NEWLINE}${body}${NEWLINE}${NEWLINE}메모에 남길 세 줄:`
+
+    const draw = async () => {
+      const raw = await complete({
+        system,
+        useAdapter: false,
+        prompt,
+        // 다섯 줄이 다 나올 만큼. 짧으면 마지막 줄이 잘려서 버려집니다.
+        maxNewTokens: 200,
+        temperature: 0.8,
+      })
+      return sanitizeNoteLines(raw, 5)
+    }
+
+    try {
+      // 필터에 다 걸려서 빈손이면 한 번 더 뽑아요.
+      let lines = await draw()
+      if (lines.length === 0) lines = await draw()
+
+      return reply.send({ available: lines.length > 0, lines, from: character.name })
+    } catch (error) {
+      if (error instanceof AiUnavailableError) {
+        request.log.warn({ reason: error.message }, 'ai note 사용 불가')
+        return reply.send({ available: false, lines: [] })
+      }
+      throw error
+    }
+  })
+
 }

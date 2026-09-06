@@ -4,7 +4,10 @@ import {
   looksLikeGhostwriting,
   sanitizeFeedback,
   EASTER_EGG_TAGLINE,
+  SILENT_TAGLINE,
   looksMeaningless,
+  sanitizeNoteLines,
+  sanitizeReply,
   sanitizeTagline,
   violatesExpressionRules,
 } from './ai.js'
@@ -230,5 +233,145 @@ describe('이스터에그', () => {
   it('이스터에그도 명함에 들어갈 수 있는 형태다', () => {
     // 길이·유형 라벨·조사 끝 검사를 통과해야 명함에 찍혀요.
     expect(sanitizeTagline(EASTER_EGG_TAGLINE)).toBe('사차원')
+  })
+
+  it('하나도 안 쓴 사람에게 주는 칭호가 정해져 있다', () => {
+    expect(SILENT_TAGLINE).toBe('침묵자')
+  })
+
+  it('침묵자도 명함에 들어갈 수 있는 형태다', () => {
+    expect(sanitizeTagline(SILENT_TAGLINE)).toBe('침묵자')
+  })
+
+  it('두 이스터에그는 서로 다르다', () => {
+    // 같은 값이면 "안 썼다" 와 "알맹이가 없다" 를 구분하는 의미가 사라져요.
+    expect(SILENT_TAGLINE).not.toBe(EASTER_EGG_TAGLINE)
+  })
+})
+
+/**
+ * 대화 캐릭터의 한 마디 거르기.
+ *
+ * 자유 대화는 **턴마다** 걸러야 해요. 문답은 제출된 묶음을 한 번 보면 됐지만
+ * 대화는 모델이 매 턴 새로 말합니다. 한 턴이라도 새면 그대로 화면에 뜨니까요.
+ */
+describe('sanitizeReply — 대화 한 마디', () => {
+  it('되묻거나 관찰하는 말은 통과해요', () => {
+    expect(sanitizeReply('그 얘기 할 때 표정이 달라지네요.')).toBe('그 얘기 할 때 표정이 달라지네요.')
+    expect(sanitizeReply('그건 언제부터 좋아했어요?')).toBe('그건 언제부터 좋아했어요?')
+    expect(sanitizeReply('그랬군요.')).toBe('그랬군요.')
+  })
+
+  it('진로를 대신 정해주면 버려요', () => {
+    // 적성 판정은 규준을 가진 쪽만 할 수 있는 일이에요. (CLAUDE.md §1)
+    expect(sanitizeReply('그런 얘기 들어보면 디자인 쪽이 잘 맞을 것 같아요.')).toBeNull()
+    expect(sanitizeReply('심리학과를 추천해요.')).toBeNull()
+    expect(sanitizeReply('그런 성향이면 상담사가 어울려요.')).toBeNull()
+  })
+
+  it('평범한 권유까지 막지는 않아요', () => {
+    // 여기까지 막으면 대화가 안 됩니다.
+    const text = '한번 해보는 건 어때요?'
+    expect(sanitizeReply(text)).toBe(text)
+  })
+
+  it('능력을 단정하면 버려요', () => {
+    expect(sanitizeReply('표현력이 뛰어난 편이네요.')).toBeNull()
+    expect(sanitizeReply('그 부분이 좀 부족해 보여요.')).toBeNull()
+  })
+
+  it('유형으로 규정하면 버려요', () => {
+    expect(sanitizeReply('전형적인 탐색형 인재네요.')).toBeNull()
+  })
+
+  it('검사 용어가 섞이면 버려요', () => {
+    expect(sanitizeReply('지금까지 답한 걸로 진단해보면 그래요.')).toBeNull()
+  })
+
+  it('"당신"은 번역투라 버려요', () => {
+    expect(sanitizeReply('당신은 어떤 걸 좋아해요?')).toBeNull()
+  })
+
+  it('강의처럼 길면 버려요', () => {
+    expect(sanitizeReply(`${'가'.repeat(250)}.`)).toBeNull()
+  })
+
+  it('마크다운은 걷어내요', () => {
+    expect(sanitizeReply('**그렇군요.** 더 듣고 싶어요.')).toBe('그렇군요. 더 듣고 싶어요.')
+  })
+
+  it('중간에서 끊긴 꼬리는 떼요', () => {
+    // max tokens 에 걸려 잘린 출력이에요.
+    expect(sanitizeReply('그렇군요. 그럼 그때는 어땠어요? 혹시 그 뒤로도 계속')).toBe(
+      '그렇군요. 그럼 그때는 어땠어요?',
+    )
+  })
+
+  it('완결된 문장이 하나도 없으면 버려요', () => {
+    expect(sanitizeReply('그러니까 제 말은 그게')).toBeNull()
+  })
+})
+
+/**
+ * 대화 후 건네는 메모.
+ *
+ * "칭찬이나 응원을 섞은" 메모가 목표인데 §7 이 능력 단정을 막아요.
+ * 경계는 **단정하느냐**에 있습니다 — 관찰과 응원은 되고 평가는 안 됩니다.
+ */
+describe('sanitizeNoteLines — 메모지에 적을 줄', () => {
+  it('관찰과 응원은 통과해요', () => {
+    const raw = ['그림 얘기 할 때 말이 빨라지셨어요.', '솔직하게 말해줘서 좋았어요.'].join('\n')
+    expect(sanitizeNoteLines(raw)).toEqual([
+      '그림 얘기 할 때 말이 빨라지셨어요.',
+      '솔직하게 말해줘서 좋았어요.',
+    ])
+  })
+
+  it('능력을 단정한 줄만 버리고 나머지는 남겨요', () => {
+    // 한 줄 때문에 메모 전체를 버리면 사용자는 빈손이 돼요.
+    const raw = [
+      '표현력이 뛰어나시네요.',
+      '그림 얘기를 오래 하셨어요.',
+      '다음에도 그 얘기 들려주세요.',
+    ].join('\n')
+    expect(sanitizeNoteLines(raw)).toEqual(['그림 얘기를 오래 하셨어요.', '다음에도 그 얘기 들려주세요.'])
+  })
+
+  it('자소서 문장을 써주면 그 줄을 버려요', () => {
+    // §7: "그대로 옮겨 쓸 수 있는 글로 제시하지 말고, 대신 작성하지도 마세요"
+    const raw = [
+      '오늘 이야기 잘 들었어요.',
+      '"저는 프로토타입 제작 중 기술적 난관에 부딪혔을 때 피그마를 독학하여 문제를 해결한 경험이 있습니다"',
+    ].join('\n')
+    expect(sanitizeNoteLines(raw)).toEqual(['오늘 이야기 잘 들었어요.'])
+  })
+
+  it('진로를 정해주는 줄을 버려요', () => {
+    const raw = ['이야기 재밌었어요.', '디자인 쪽이 잘 맞을 것 같아요.'].join('\n')
+    expect(sanitizeNoteLines(raw)).toEqual(['이야기 재밌었어요.'])
+  })
+
+  it('목록 기호를 떼요', () => {
+    const raw = ['- 그림 얘기를 오래 하셨어요.', '1. 다음에도 들려주세요.'].join('\n')
+    expect(sanitizeNoteLines(raw)).toEqual(['그림 얘기를 오래 하셨어요.', '다음에도 들려주세요.'])
+  })
+
+  it('같은 줄이 반복되면 하나만 남겨요', () => {
+    const raw = ['오늘 이야기 잘 들었어요.', '오늘 이야기 잘 들었어요.'].join('\n')
+    expect(sanitizeNoteLines(raw)).toHaveLength(1)
+  })
+
+  it('너무 짧거나 긴 줄은 버려요', () => {
+    const raw = ['음.', `${'가'.repeat(80)}.`, '오늘 이야기 잘 들었어요.'].join('\n')
+    expect(sanitizeNoteLines(raw)).toEqual(['오늘 이야기 잘 들었어요.'])
+  })
+
+  it('최대 개수를 넘기지 않아요', () => {
+    const raw = Array.from({ length: 9 }, (_, i) => `오늘 이야기 잘 들었어요 ${i}번.`).join('\n')
+    expect(sanitizeNoteLines(raw, 4)).toHaveLength(4)
+  })
+
+  it('쓸 만한 줄이 없으면 빈 배열', () => {
+    expect(sanitizeNoteLines('진단해보면 표현력이 뛰어난 유형이에요.')).toEqual([])
   })
 })

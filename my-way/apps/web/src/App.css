@@ -1104,13 +1104,6 @@
 }
 
 .choice-list,
-.area-choices {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-}
-
 .choice {
   display: flex;
   flex-direction: column;
@@ -1272,4 +1265,71 @@
   color: var(--text-sub);
   padding: 4px 0;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── 캐릭터 대화 ───────────────────────────────────────────────
+   말풍선은 좌우로 갈라서 누가 한 말인지 색이 아니라 위치로 보이게 해요.
+   색만으로 구분하면 대비가 낮은 화면에서 헷갈립니다. */
+
+.talk-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.talk-bubble {
+  max-width: 82%;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 내가 한 말은 오른쪽으로. */
+.talk-bubble--me {
+  align-self: flex-end;
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+/* 기다리는 동안. 답이 오는 중이라는 것만 알리면 돼요. */
+.talk-bubble--waiting {
+  color: var(--text-sub);
+  letter-spacing: 2px;
+}
+
+.talk-compose {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 12px 0 4px;
+}
+
+.talk-compose .flow-input {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.talk-compose .button {
+  flex: 0 0 auto;
+}
+
+/* "몇 번 더 하면 정리할 수 있어요" 안내. 버튼 바로 아래에 붙여요. */
+.talk-hint {
+  text-align: center;
+  margin-top: 4px;
+}
+
+/* 결과지 메모. 원본이 800×1000 이라 폭에 맞춰 줄여요. */
+.note-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
 }

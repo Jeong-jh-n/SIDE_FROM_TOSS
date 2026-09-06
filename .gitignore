@@ -17,6 +17,15 @@
 .env.*.local
 !.env.example
 
+# 1-2) 키를 적어두는 메모.
+#    실제 인증키가 들어 있습니다. .env 와 같은 취급이에요.
+#    **키를 마크다운에 두지 마세요.** 코드가 읽지 못하고, 실수로 커밋되기 쉽습니다.
+#    제대로 된 자리는 my-way/apps/api/.env 예요.
+API.md
+api.md
+KEYS.md
+secrets.md
+
 # 2) AI허브 데이터로 학습한 LoRA 어댑터 (159MB).
 #    career_content_v1.json 의 licensing.obligations:
 #      "AI허브 데이터 제3자 제공 금지"

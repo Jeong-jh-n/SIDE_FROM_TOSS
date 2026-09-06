@@ -1,39 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router'
-import { isTrackId, teen, narrative } from '@/lib/content'
+import { useNavigate } from 'react-router'
+import { questions } from '@/lib/content'
 import { loadState, saveState } from '@/lib/storage'
+import { EMPTY_RESPONSES, RESPONSES_KEY, type ResponsesState } from '@/lib/responses'
 import { TopBar } from '@/features/shared/TopBar'
 import { SupportNotice } from '@/features/shared/SupportNotice'
-import { containsRiskSignal } from '@/lib/safety'
+import { containsRiskSignal, needsSupport } from '@/lib/safety'
 import { fetchTaglines, type AiTrack, type FeedbackEntry } from '@/lib/aiApi'
 import aiMarkSrc from '@/assets/aiMark.png'
-import type { FlowAnswer } from '@/features/shared/QuestionFlow'
-import { TEEN_STORAGE_KEY } from '@/features/teen/TeenFlow'
-import { NARRATIVE_STORAGE_KEY } from '@/features/jobseekerNarrative/NarrativeFlow'
 
 /**
- * 워밍업 — 짧게 답하고 명함 한 줄을 먼저 얻는 단계.
+ * 흐름 1 — 서술형 다섯 개.
  *
- * ## 왜 앞에 두나
+ * ## 짧게 답하고 손에 잡히는 걸 먼저 줍니다
  *
- * 24문항을 다 풀어야 뭔가 나오는 구조는 진입 장벽이 큽니다. **몇 개만 답해도
- * 손에 잡히는 게 하나 생기면** 그다음 깊은 문답으로 넘어갈 이유가 생겨요.
+ * 문항을 잔뜩 풀어야 뭔가 나오는 구조는 진입 장벽이 커요. **다섯 개만 답해도
+ * 명함 칭호가 하나 생기면** 그다음(캐릭터 대화)으로 넘어갈 이유가 생깁니다.
  *
- * ## 중복해서 묻지 않습니다
+ * ## 칭호는 제안이에요
  *
- * 여기서 쓰는 문항은 **심화 문답의 `recommendedOrder` 앞부분 그대로**이고,
- * 저장소도 같은 키를 씁니다. 그래서 워밍업에서 답한 문항은 심화 단계에서 다시
- * 나오지 않아요 — `flowMachine` 이 "첫 미응답 문항"부터 이어가기 때문입니다.
- *
- * ## 칭호는 제안입니다
- *
- * 응답마다 후보를 1~2개 보여주고 **고르는 건 사용자**예요. 안 고르고 넘어가도 됩니다.
- * 고른 값은 명함(`card` 저장소)의 한 줄로 들어가고, 나중에 명함 화면에서 고칠 수
- * 있어요. 판정이 아니라 제안이라는 걸 구조로 지킵니다. (CLAUDE.md §7)
+ * 후보를 보여주고 **고르는 건 사용자**입니다. 안 고르고 넘어가도 돼요. 고른 값은
+ * 명함의 AI 칸으로 들어가고 **고칠 수는 없습니다.** 판정이 아니라 제안이라는 걸
+ * 구조로 지켜요. (CLAUDE.md §7)
  */
 
-/** 워밍업에 쓸 문항 수. 짧아야 의미가 있지만, 칭호 재료로는 어느 정도 필요해요. */
-const WARMUP_COUNT = 5
+/**
+ * 어투.
+ *
+ * 앱인토스 미니앱은 **만 19세 이상**이 대상이라 해요체입니다.
+ * 문항도 같은 이유로 대학생·취준생용(`jobseeker_narrative`)을 씁니다.
+ */
+const TONE: AiTrack = 'jobseeker'
 
 interface CardSaved {
   /** AI 칭호 칸. 직접 쓰는 칭호(`tagline`)와 따로 둡니다. */
@@ -41,46 +38,13 @@ interface CardSaved {
   taglineSource: 'self' | 'ai'
 }
 
-interface WarmupItem {
-  key: string
-  prompt: string
-  supportFlag: boolean
-}
-
-function warmupItemsFor(track: string): { items: WarmupItem[]; storageKey: string; ai: AiTrack } {
-  if (track === 'teen') {
-    const order = teen.recommendedOrder ?? teen.items.map((item) => item.id)
-    const byId = new Map(teen.items.map((item) => [String(item.id), item]))
-    const items = order
-      .map((id) => byId.get(String(id)))
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      .slice(0, WARMUP_COUNT)
-      .map((item) => ({
-        key: String(item.id),
-        prompt: item.prompt,
-        supportFlag: Boolean(item.supportFlag),
-      }))
-    return { items, storageKey: TEEN_STORAGE_KEY, ai: 'teen' }
-  }
-
-  const order = narrative.flow.recommendedOrder
-  const byId = new Map(narrative.items.map((item) => [item.id, item]))
-  const items = order
-    .map((id) => byId.get(id))
-    .filter((item): item is NonNullable<typeof item> => Boolean(item))
-    .slice(0, WARMUP_COUNT)
-    .map((item) => ({ key: item.id, prompt: item.prompt, supportFlag: false }))
-  return { items, storageKey: NARRATIVE_STORAGE_KEY, ai: 'jobseeker' }
-}
-
 export function WarmupRoute() {
   const navigate = useNavigate()
-  const { track } = useParams()
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const [step, setStep] = useState(0)
   const [input, setInput] = useState('')
-  const [collected, setCollected] = useState<{ item: WarmupItem; text: string }[]>([])
+  const [collected, setCollected] = useState<{ key: string; prompt: string; text: string }[]>([])
   const [phase, setPhase] = useState<'ask' | 'making' | 'pick'>('ask')
   const [candidates, setCandidates] = useState<string[]>([])
   const [picked, setPicked] = useState('')
@@ -89,81 +53,77 @@ export function WarmupRoute() {
     if (phase === 'ask') inputRef.current?.focus()
   }, [step, phase])
 
-  /*
-   * 워밍업 다음은 **같은 트랙의 남은 서술 문항**입니다.
-   *
-   * 서술을 먼저 끝내야 명함 칭호가 손에 들어와요. 체크리스트(트랙 B)는 그다음에
-   * **원하는 사람만** 들어갑니다. 결과 화면에서 입구를 엽니다.
-   */
-  const deepPath = `/chat/${track}`
-
   /**
    * 모아둔 응답으로 **한 번에** 후보를 뽑아요.
    *
-   * 문항마다 부르면 답할 때마다 3~7초를 기다려야 하고 GPU 시간도 배로 듭니다
-   * (락으로 직렬 처리라 더 그래요). 그래서 마지막에 한 번만 부릅니다.
+   * 문항마다 부르면 답할 때마다 몇 초씩 기다려야 하고 호출 비용도 배로 듭니다.
+   * 그래서 마지막에 한 번만 불러요.
    */
-  const makeTaglines = useCallback(
-    async (rows: { item: WarmupItem; text: string }[], ai: AiTrack) => {
-      setPhase('making')
+  const makeTaglines = useCallback(async (rows: { prompt: string; text: string }[]) => {
+    setPhase('making')
 
-      // 위험 신호가 있는 응답은 재료에서 빼요. (CLAUDE.md §8)
-      const entries: FeedbackEntry[] = rows
-        .filter((row) => row.text.trim() !== '' && !containsRiskSignal(row.text))
-        .map((row) => ({ question: row.item.prompt, answer: row.text }))
+    const written = rows.filter((row) => row.text.trim() !== '')
 
-      setCandidates(entries.length === 0 ? [] : await fetchTaglines(entries, ai))
+    // 위험 신호가 있는 응답은 재료에서 빼요. (CLAUDE.md §8)
+    const entries: FeedbackEntry[] = written
+      .filter((row) => !containsRiskSignal(row.text))
+      .map((row) => ({ question: row.prompt, answer: row.text }))
+
+    /*
+     * 쓰긴 썼는데 **전부 위험 신호라** 재료가 없는 경우.
+     *
+     * 여기서 빈손으로 끝냅니다. 서버에 빈 목록을 보내면 '침묵자' 가 돌아오는데,
+     * **힘든 말을 적은 사람에게 농담을 돌려주는 꼴이 돼요.** 아무 말도 안 한 것과
+     * 힘든 말을 한 것은 다릅니다.
+     */
+    if (written.length > 0 && entries.length === 0) {
+      setCandidates([])
       setPhase('pick')
-    },
-    [],
-  )
+      return
+    }
+
+    // 하나도 안 썼으면 빈 목록으로 물어봐요. 서버가 '침묵자' 를 돌려줍니다.
+    setCandidates(await fetchTaglines(entries, TONE))
+    setPhase('pick')
+  }, [])
 
   const handleNext = useCallback(
-    (text: string, item: WarmupItem, storageKey: string, ai: AiTrack, isLast: boolean) => {
-      // 심화 문답과 같은 저장소에 넣어요. 그래서 다시 묻지 않습니다.
-      const saved = loadState<{ answers: FlowAnswer[]; probingKey: null; cursorKey: null }>(
-        storageKey,
-        { answers: [], probingKey: null, cursorKey: null },
-      )
-      const answers = saved.answers.filter((a) => a.key !== item.key)
-      answers.push({ key: item.key, text, skipped: text.trim() === '' })
-      saveState(storageKey, { ...saved, answers })
+    (text: string) => {
+      const question = questions[step]
+      if (question === undefined) return
 
-      const rows = [...collected, { item, text }]
+      const saved = loadState<ResponsesState>(RESPONSES_KEY, EMPTY_RESPONSES)
+      const answers = saved.answers.filter((a) => a.key !== question.key)
+      answers.push({ key: question.key, text, skipped: text.trim() === '' })
+      saveState(RESPONSES_KEY, { ...saved, answers })
+
+      const rows = [...collected, { key: question.key, prompt: question.prompt, text }]
       setCollected(rows)
       setInput('')
 
       // 여기서는 AI를 부르지 않아요. 리스트에 담기만 합니다.
-      if (isLast) {
-        void makeTaglines(rows, ai)
+      if (step >= questions.length - 1) {
+        void makeTaglines(rows)
         return
       }
       setStep((prev) => prev + 1)
     },
-    [collected, makeTaglines],
+    [collected, makeTaglines, step],
   )
 
-  if (typeof track !== 'string' || !isTrackId(track) || track === 'jobseeker_behavior') {
-    return (
-      <div className="page page--result">
-        <TopBar title="" />
-        <div className="page page--empty">
-          <h1>여기서 시작할 수 없어요</h1>
-          <button type="button" className="button button--primary" onClick={() => navigate('/')}>
-            처음으로
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  const { items, storageKey, ai } = warmupItemsFor(track)
-  const item = items[Math.min(step, items.length - 1)]
-  const isLast = step >= items.length - 1
-  const risky = containsRiskSignal(input)
+  const question = questions[Math.min(step, questions.length - 1)]
+  const isLast = step >= questions.length - 1
+  /*
+   * 입력 내용을 봐서 안내를 띄워요. 문항 플래그만으로는 놓칩니다.
+   *
+   * `needsSupport` 는 자살·자해뿐 아니라 우울·번아웃 같은 어려움 신호도 봐요.
+   * §8 이 `N4`(졸업 후 공백)를 지목한 것도 여기서 걸립니다 — 질문이 아니라
+   * **답변에 드러날 때** 잡는 쪽이 맞아요. (lib/content.ts 의 SUPPORT_FLAGGED)
+   */
+  const risky = needsSupport(input)
   const added = collected.filter((row) => row.text.trim() !== '').length
 
-  // ── 문구 만들기 · 고르기 단계 ───────────────────────────────────
+  // ── 문구 만들기 · 고르기 ────────────────────────────────────────
   if (phase !== 'ask') {
     return (
       <div className="page page--result">
@@ -221,48 +181,40 @@ export function WarmupRoute() {
         <div className="flow-actions">
           <button
             type="button"
-            className="button button--ghost"
+            className="button button--primary button--block"
             onClick={() => navigate('/card')}
             disabled={phase === 'making'}
           >
-            명함 보기
-          </button>
-          <button
-            type="button"
-            className="button button--primary"
-            onClick={() => navigate(deepPath)}
-            disabled={phase === 'making'}
-          >
-            이어서 마저 답하기
+            명함 만들러 가기
           </button>
         </div>
       </div>
     )
   }
 
-  // ── 문답 단계 ──────────────────────────────────────────────────
+  // ── 문답 ───────────────────────────────────────────────────────
   return (
     <div className="page page--result">
-      <TopBar title="먼저 가볍게" current={step + 1} total={items.length} />
+      <TopBar title="먼저 가볍게" current={step + 1} total={questions.length} />
 
       <div className="tab-panel">
         <section className="card">
           <p className="stage-message">
-            {items.length}개만 먼저 답해볼래요? 다 답하면 명함에 넣을 문구를 만들어 드려요.
+            {questions.length}개만 먼저 답해볼래요? 다 답하면 명함에 넣을 문구를 만들어 드려요.
           </p>
         </section>
 
         <section className="card">
-          <p className="flow-prompt">{item.prompt}</p>
+          <p className="flow-prompt">{question.prompt}</p>
           <textarea
             ref={inputRef}
             className="flow-input"
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder={ai === 'teen' ? '편하게 적어줘' : '편하게 적어주세요'}
+            placeholder="편하게 적어주세요"
             rows={4}
           />
-          {(item.supportFlag || risky) && <SupportNotice />}
+          {(question.supportFlag || risky) && <SupportNotice />}
         </section>
 
         {/* 답할 때마다 쌓이는 게 보이도록. AI는 아직 안 돌아요. */}
@@ -274,17 +226,13 @@ export function WarmupRoute() {
       </div>
 
       <div className="flow-actions">
-        <button
-          type="button"
-          className="button button--ghost"
-          onClick={() => handleNext('', item, storageKey, ai, isLast)}
-        >
-          {ai === 'teen' ? '넘길래' : '건너뛸게요'}
+        <button type="button" className="button button--ghost" onClick={() => handleNext('')}>
+          건너뛸게요
         </button>
         <button
           type="button"
           className="button button--primary"
-          onClick={() => handleNext(input, item, storageKey, ai, isLast)}
+          onClick={() => handleNext(input)}
           disabled={input.trim() === ''}
         >
           {isLast ? '문구 만들기' : '다음'}

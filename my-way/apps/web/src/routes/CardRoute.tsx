@@ -9,9 +9,9 @@ import { CARD_INFO_META, type CardData, type CardInfo, type CardInfoKey } from '
 import { fetchTaglines, type AiTrack, type FeedbackEntry } from '@/lib/aiApi'
 import { useNavigate } from 'react-router'
 import aiMarkSrc from '@/assets/aiMark.png'
-import { teen, narrative } from '@/lib/content'
+import { promptsByKey, supportFlagged } from '@/lib/content'
 import { containsRiskSignal } from '@/lib/safety'
-import type { FlowAnswer } from '@/features/shared/QuestionFlow'
+import { EMPTY_RESPONSES, RESPONSES_KEY, type ResponsesState } from '@/lib/responses'
 
 const STORAGE_KEY = 'card'
 const INFO_KEYS = Object.keys(CARD_INFO_META) as CardInfoKey[]
@@ -91,31 +91,32 @@ export function normalize(saved: Partial<Saved> | null | undefined): Saved {
 /**
  * 문답 응답을 칭호 재료로 모아요.
  *
- * **자체 문답만 씁니다.** 커리어넷 검사 결과(`lowestArea` 등)는 섞지 않아요.
- * 섞으면 "공인 검사가 나를 이렇게 판정했다"로 읽힙니다. (CLAUDE.md §7)
+ * 정서 신호가 걸린 문항(`supportFlag`)과 위험 신호가 있는 응답은 **재료에서 뺍니다.**
+ * 그 말을 근거로 칭호를 지어내면 안 돼요. (CLAUDE.md §8)
  *
- * 정서 신호 문항과 위험 신호가 있는 응답은 제외해요. (CLAUDE.md §8)
+ * 실제로 "우울증" 이라고 답한 사례에서 **"우울증 탐구자" 라는 칭호가 만들어진 적이
+ * 있습니다.** 그래서 두 겹으로 겁니다 — 문항 단위(`supportFlagged`)와 내용 단위
+ * (`containsRiskSignal`).
  */
-function collectMaterial(): { entries: FeedbackEntry[]; track: AiTrack } {
-  const pick = (answers: FlowAnswer[], prompts: Map<string, string>, skip: (id: string) => boolean) =>
-    answers
-      .filter((a) => !a.skipped && a.text.trim() && !skip(a.key) && !containsRiskSignal(a.text))
-      .map((a) => ({ question: prompts.get(a.key) ?? '', answer: a.text }))
-      .filter((e) => e.question)
+function collectMaterial(): { entries: FeedbackEntry[]; track: AiTrack; wrote: boolean } {
+  const { answers } = loadState<ResponsesState>(RESPONSES_KEY, EMPTY_RESPONSES)
 
-  const narrativeAnswers = loadState<{ answers: FlowAnswer[] }>('track:jobseeker_narrative', {
-    answers: [],
-  }).answers
-  if (narrativeAnswers.length > 0) {
-    const prompts = new Map(narrative.items.map((item) => [item.id, item.prompt]))
-    const sensitive = new Set(['N4', 'N7', 'N12'])
-    return { entries: pick(narrativeAnswers, prompts, (id) => sensitive.has(id)), track: 'jobseeker' }
-  }
+  // 한 글자라도 썼는지. 재료가 없는 이유를 가리는 데 씁니다(아래 handleTagline).
+  const wrote = answers.some((a) => !a.skipped && a.text.trim() !== '')
 
-  const teenAnswers = loadState<{ answers: FlowAnswer[] }>('track:teen', { answers: [] }).answers
-  const prompts = new Map(teen.items.map((item) => [String(item.id), item.prompt]))
-  const flagged = new Set(teen.items.filter((item) => item.supportFlag).map((item) => String(item.id)))
-  return { entries: pick(teenAnswers, prompts, (id) => flagged.has(id)), track: 'teen' }
+  const entries = answers
+    .filter(
+      (a) =>
+        !a.skipped &&
+        a.text.trim() !== '' &&
+        !supportFlagged.has(a.key) &&
+        !containsRiskSignal(a.text),
+    )
+    .map((a) => ({ question: promptsByKey.get(a.key) ?? '', answer: a.text }))
+    .filter((entry) => entry.question !== '')
+
+  // 원패턴이라 어투는 하나예요. 해요체를 씁니다. (WarmupRoute 의 TONE 과 같은 이유)
+  return { entries, track: 'jobseeker', wrote }
 }
 
 /**
@@ -146,6 +147,17 @@ export function CardRoute() {
    * 지울 수 있어요. 판정은 못 고치지만 제안은 고칠 수 있습니다. (CLAUDE.md §7)
    */
   const handleTagline = useCallback(async () => {
+    /*
+     * 쓰긴 썼는데 **전부 위험·정서 신호라** 재료가 없는 경우.
+     *
+     * 빈 목록을 보내면 서버가 '침묵자' 를 돌려주는데, 힘든 말을 적은 사람에게
+     * 농담을 주는 꼴이 됩니다. 아무 말도 안 한 것과는 달라요. (WarmupRoute 와 같은 판단)
+     */
+    if (material.wrote && material.entries.length === 0) {
+      setTaglineNote('지금은 문구를 만들지 못했어요. 직접 적어도 돼요.')
+      return
+    }
+
     setTaglineBusy(true)
     setTaglineNote('')
     const candidates = await fetchTaglines(material.entries, material.track)
@@ -320,23 +332,21 @@ export function CardRoute() {
 
       {/*
         명함까지 오면 가벼운 구간이 끝나요. 여기서 멈추지 않게 다음 걸음을 열어둡니다.
-        대학생 트랙만 검사가 연결돼 있어서(중·고등학생은 학년 구분 미정) 트랙을 보고 나눠요.
-      */}
-      {/*
-        검사는 버튼을 하나씩 늘어놓지 않고 **입구 하나로** 보냅니다.
-        여기가 명함 화면이라 검사 목록이 길게 붙으면 곁다리처럼 보여요.
+        캐릭터는 이 화면에서 고르지 않고 /talk 에서 골라요 — 여기에 셋을 늘어놓으면
+        명함이 곁다리로 보입니다.
       */}
       <section className="card">
-        <h2 className="section-title">진로에 대해 검사하기</h2>
+        <h2 className="section-title">이야기 나눠보기</h2>
         <p className="stage-message">
-          좀 더 자세한 진로 검사를 해볼 수 있어요. 커리어넷의 공인 검사예요.
+          성격이 다른 셋 중 하나를 골라 이야기를 나눠볼 수 있어요. 나눈 내용을 메모로
+          정리해 드려요.
         </p>
         <button
           type="button"
           className="button button--ghost button--block"
-          onClick={() => navigate('/inspect')}
+          onClick={() => navigate('/talk')}
         >
-          검사하러 가기
+          이야기하러 가기
         </button>
       </section>
 
